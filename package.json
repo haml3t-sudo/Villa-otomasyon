@@ -6,11 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "backend": "python3 backend/app.py"
   },
   "dependencies": {
     "@supabase/supabase-js": "latest",
+    "date-fns": "^4.1.0",
+    "jspdf": "^4.2.0",
+    "jspdf-autotable": "^5.0.7",
     "react": "latest",
+    "react-big-calendar": "^1.19.4",
     "react-dom": "latest",
     "react-router-dom": "^7.13.1",
     "recharts": "^3.7.0",

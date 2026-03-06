@@ -19,6 +19,9 @@ import LoginPage from "./pages/LoginPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import StaffManagementPage from "./pages/StaffManagementPage";
 import AuditLogsPage from "./pages/AuditLogsPage";
+import BackupManager from "./pages/BackupManager";
+import ProfileSettings from "./pages/ProfileSettings";
+import TaskCalendar from "./components/TaskCalendar";
 
 const menuItems = [
   { label: "Dashboard", to: "/dashboard" },
@@ -30,6 +33,8 @@ const menuItems = [
   { label: "📊 İstatistikler", to: "/statistics", requiredRole: "admin" },
   { label: "👥 Personel Yönetimi", to: "/staff", requiredRole: "admin" },
   { label: "🔍 Sistem Günlükleri", to: "/audit-logs", requiredRole: "admin" },
+  { label: "💾 Yedekleme", to: "/backup", requiredRole: "admin" },
+  { label: "👤 Profilim", to: "/profile" },
 ];
 
 const villaStatuses = ["Onay Bekliyor", "Görüşülüyor", "Beklemede", "Onaylandı"];
@@ -39,6 +44,14 @@ const weekDays = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
 const ACTIVITY_GUIDE_LINK = "https://www.goturkiye.com/tr/homepage";
 const ACTIVITY_GUIDE_PDF =
   "https://cdn.sanity.io/files/5qg0txzv/production/cf4ac57d64cf2b2ce5f64c25899653c8f79f4f4a.pdf";
+const ACTIVITY_GUIDE_SETTINGS_KEY = "activity_guide_settings_v1";
+const defaultActivityGuideSettings = {
+  linkUrl: ACTIVITY_GUIDE_LINK,
+  pdfUrl: ACTIVITY_GUIDE_PDF,
+  emailSubject: "Bölgemizdeki Aktiviteler",
+  emailBody:
+    "Merhaba {guestName},\n\nBölgemizdeki aktiviteler için {guideType} paylaşımı:\n{guideUrl}\n\nİyi tatiller dileriz.",
+};
 
 const importTargets = [
   { key: "name", label: "Villa Adı", recommended: true },
@@ -443,6 +456,15 @@ const ACTIVITIES_BUCKET = "activity-photos";
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function isUuidLike(value) {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    )
+  );
 }
 
 function formatDateTime(isoString) {
@@ -4479,6 +4501,14 @@ function EditReservationModal({ reservation, villas, onSave, onClose }) {
     endDate:        reservation.endDate || "",
     toplamTutar:    String(reservation.toplamTutar || ""),
     alinanOnOdeme:  String(reservation.alinanOnOdeme || ""),
+    ekTemizlikVar:
+      reservation.ekTemizlikVar ??
+      ((Number(reservation.ekTemizlikUcreti || 0) > 0) ? true : false),
+    ekTemizlikUcreti: String(reservation.ekTemizlikUcreti || ""),
+    hasarDepozitoVar:
+      reservation.hasarDepozitoVar ??
+      ((Number(reservation.depozitoTutar || 0) > 0) ? true : false),
+    depozitoTutar: String(reservation.depozitoTutar || ""),
     onOdemeDurumu:  reservation.onOdemeDurumu || "Beklemede",
     kapidaOdemeDurumu: reservation.kapidaOdemeDurumu || "Beklemede",
   });
@@ -4512,6 +4542,9 @@ function EditReservationModal({ reservation, villas, onSave, onClose }) {
       endDate:        form.endDate,
       toplamTutar:    rfToplam,
       alinanOnOdeme:  rfAlinanOnOdeme,
+      ekTemizlikUcreti: form.ekTemizlikVar ? Number(form.ekTemizlikUcreti || 0) : 0,
+      hasarDepozitoVar: form.hasarDepozitoVar,
+      depozitoTutar: form.hasarDepozitoVar ? Number(form.depozitoTutar || 0) : 0,
       onOdemeDurumu:  form.onOdemeDurumu,
       kapidaOdemeDurumu: form.kapidaOdemeDurumu,
     });
@@ -4635,6 +4668,73 @@ function EditReservationModal({ reservation, villas, onSave, onClose }) {
                 </select>
               </label>
             </div>
+
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={form.ekTemizlikVar}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        ekTemizlikVar: e.target.checked,
+                        ekTemizlikUcreti: e.target.checked ? prev.ekTemizlikUcreti : "",
+                      }))
+                    }
+                  />
+                  Ekstra temizlik ücreti var mı?
+                </label>
+                {form.ekTemizlikVar && (
+                  <label className="mt-2 flex flex-col gap-1 text-xs font-medium text-slate-600">
+                    Ekstra temizlik tutarı (₺)
+                    <input
+                      type="number"
+                      min={0}
+                      value={form.ekTemizlikUcreti}
+                      onChange={(e) =>
+                        setForm((prev) => ({ ...prev, ekTemizlikUcreti: e.target.value }))
+                      }
+                      placeholder="0"
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-500 transition focus:ring-2"
+                    />
+                  </label>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={form.hasarDepozitoVar}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        hasarDepozitoVar: e.target.checked,
+                        depozitoTutar: e.target.checked ? prev.depozitoTutar : "",
+                      }))
+                    }
+                  />
+                  Hasar depozitosu var mı?
+                </label>
+                {form.hasarDepozitoVar && (
+                  <label className="mt-2 flex flex-col gap-1 text-xs font-medium text-slate-600">
+                    Hasar depozitosu tutarı (₺)
+                    <input
+                      type="number"
+                      min={0}
+                      value={form.depozitoTutar}
+                      onChange={(e) =>
+                        setForm((prev) => ({ ...prev, depozitoTutar: e.target.value }))
+                      }
+                      placeholder="0"
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-500 transition focus:ring-2"
+                    />
+                  </label>
+                )}
+              </div>
+            </div>
+
             {rfToplam > 0 && (
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {[
@@ -4668,6 +4768,130 @@ function EditReservationModal({ reservation, villas, onSave, onClose }) {
             <button type="submit"
               className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 active:scale-[0.98]">
               Değişiklikleri Kaydet
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ActivityGuideSettingsModal({ initialSettings, onSave, onClose }) {
+  const [form, setForm] = useState({
+    linkUrl: initialSettings?.linkUrl || "",
+    pdfUrl: initialSettings?.pdfUrl || "",
+    emailSubject: initialSettings?.emailSubject || "",
+    emailBody: initialSettings?.emailBody || "",
+  });
+
+  function updateField(e) {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    onSave({
+      linkUrl: form.linkUrl.trim(),
+      pdfUrl: form.pdfUrl.trim(),
+      emailSubject: form.emailSubject.trim(),
+      emailBody: form.emailBody,
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 py-8">
+      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Aktivite İçeriği Düzenle</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Link, PDF ve e-posta metin şablonlarını buradan güncelleyebilirsiniz.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4 p-6">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
+              Aktivite Link URL
+              <input
+                type="url"
+                name="linkUrl"
+                value={form.linkUrl}
+                onChange={updateField}
+                required
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-500 transition focus:ring-2"
+              />
+            </label>
+
+            <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
+              Aktivite PDF URL
+              <input
+                type="url"
+                name="pdfUrl"
+                value={form.pdfUrl}
+                onChange={updateField}
+                required
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-500 transition focus:ring-2"
+              />
+            </label>
+          </div>
+
+          <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
+            E-posta Konu Şablonu
+            <input
+              type="text"
+              name="emailSubject"
+              value={form.emailSubject}
+              onChange={updateField}
+              required
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-500 transition focus:ring-2"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
+            E-posta Mesaj Şablonu
+            <textarea
+              name="emailBody"
+              rows={8}
+              value={form.emailBody}
+              onChange={updateField}
+              required
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-500 transition focus:ring-2"
+            />
+            <span className="text-[11px] text-slate-500">
+              Kullanılabilir değişkenler: <code>{"{guestName}"}</code>, <code>{"{guideType}"}</code>, <code>{"{guideUrl}"}</code>
+            </span>
+          </label>
+
+          <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
+            <p className="font-semibold">Önizleme değişkenleri</p>
+            <p className="mt-1">
+              <code>{"{guestName}"}</code> = "Misafir", <code>{"{guideType}"}</code> = "link / PDF", <code>{"{guideUrl}"}</code> = seçilen URL
+            </p>
+          </div>
+
+          <div className="flex gap-3 border-t border-slate-100 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-lg border border-slate-300 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            >
+              İptal
+            </button>
+            <button
+              type="submit"
+              className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 active:scale-[0.98]"
+            >
+              Kaydet
             </button>
           </div>
         </form>
@@ -4857,13 +5081,18 @@ function ReservationsPage({
   reservations,
   activities,
   currentUser,
+  activityGuideSettings,
+  onUpdateActivityGuideSettings,
   onAddReservation,
   onUpdateReservation,
   onCancelReservation,
   onSendActivityGuide,
   onSendActivityWhatsapp,
 }) {
+  const { user } = useAuth();
   const [calendarMonth, setCalendarMonth] = useState(nowIso().slice(0, 7));
+  const [pdfLoadingId, setPdfLoadingId] = useState(null);
+  const [showActivityGuideModal, setShowActivityGuideModal] = useState(false);
   const [calendarVillaFilter, setCalendarVillaFilter] = useState("all");
   const [selectedReservationId, setSelectedReservationId] = useState(null);
   const [editingReservation, setEditingReservation]   = useState(null);
@@ -4885,6 +5114,10 @@ function ReservationsPage({
     // ── Ödeme alanları ────────────────────────────────────────────────────────
     toplamTutar: "",
     alinanOnOdeme: "",        // müşteriden alınan ön ödeme (kullanıcı girer)
+    ekTemizlikVar: false,
+    ekTemizlikUcreti: "",
+    hasarDepozitoVar: false,
+    depozitoTutar: "",
     onOdemeDurumu: "Beklemede",
     kapidaOdemeDurumu: "Beklemede",
     ajansOdemeDurumu: "Beklemede", // ajans borcunu ev sahibine ödeme durumu
@@ -4955,6 +5188,13 @@ function ReservationsPage({
       alinanOnOdeme: rfAlinanOnOdeme,
       kapidaOdenecek: rfKapidaOdenecek,
       ajansBorc: rfAjansBorc,
+      ekTemizlikUcreti: reservationForm.ekTemizlikVar
+        ? Number(reservationForm.ekTemizlikUcreti || 0)
+        : 0,
+      hasarDepozitoVar: reservationForm.hasarDepozitoVar,
+      depozitoTutar: reservationForm.hasarDepozitoVar
+        ? Number(reservationForm.depozitoTutar || 0)
+        : 0,
       onOdemeDurumu: reservationForm.onOdemeDurumu,
       kapidaOdemeDurumu: reservationForm.kapidaOdemeDurumu,
       ajansOdemeDurumu: rfAjansBorc > 0 ? reservationForm.ajansOdemeDurumu : null,
@@ -4974,6 +5214,36 @@ function ReservationsPage({
     }
 
     onAddReservation(payload, currentUser);
+    const selectedVilla = villas.find((v) => Number(v.id) === Number(payload.villaId));
+    const reservationNo = reservations.length + 1;
+    const pdfPayload = { ...payload, reservationNo, villaName: selectedVilla?.name };
+
+    // Python/ReportLab backend üzerinden PDF üret.
+    (async () => {
+      const backendBase = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
+      try {
+        const res = await fetch(`${backendBase}/api/pdf/reservation`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...pdfPayload, currentUserId: user?.id }),
+          signal: AbortSignal.timeout(12000),
+        });
+        if (!res.ok) {
+          throw new Error("Backend PDF servisi hata döndürdü.");
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `rezervasyon_${reservationNo}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        alert(error?.message || "PDF yalnızca backend üzerinden üretilebilir. Lütfen backend servisini kontrol edin.");
+      }
+    })();
     setReservationForm((prev) => ({
       ...prev,
       guestName: "",
@@ -4989,6 +5259,10 @@ function ReservationsPage({
       endDate: "",
       toplamTutar: "",
       alinanOnOdeme: "",
+      ekTemizlikVar: false,
+      ekTemizlikUcreti: "",
+      hasarDepozitoVar: false,
+      depozitoTutar: "",
       onOdemeDurumu: "Beklemede",
       kapidaOdemeDurumu: "Beklemede",
       ajansOdemeDurumu: "Beklemede",
@@ -5002,6 +5276,59 @@ function ReservationsPage({
       }
       return isReservationOnDate(reservation, dateString);
     });
+  }
+
+  async function downloadReservationPdf(reservationId) {
+    setPdfLoadingId(reservationId);
+    try {
+      const reservation = reservationsWithVilla.find((r) => r.id === reservationId);
+      if (!reservation) throw new Error("Rezervasyon bulunamadı.");
+      const no =
+        reservation.reservationNo ||
+        reservation.reservation_no ||
+        reservationsWithVilla
+          .slice()
+          .sort((a, b) =>
+            String(a.createdAt || a.created_at || "").localeCompare(
+              String(b.createdAt || b.created_at || ""),
+            ),
+          )
+          .findIndex((r) => r.id === reservationId) + 1;
+
+      const payload = {
+        ...reservation,
+        reservationNo: no,
+        villaName: reservation.villa?.name,
+      };
+
+      // Python/ReportLab backend üzerinden PDF üret.
+      const backendBase = import.meta.env.VITE_BACKEND_URL || "http://localhost:5001";
+      const res = await fetch(`${backendBase}/api/pdf/reservation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, currentUserId: user?.id }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!res.ok) {
+        throw new Error("Backend PDF servisi hata döndürdü.");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const disp = res.headers.get("content-disposition") || "";
+      const match = disp.match(/filename="?([^";]+)"?/i);
+      const filename = match?.[1] || `rezervasyon_${no}.pdf`;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      alert(error?.message || "PDF yalnızca backend üzerinden üretilebilir. Lütfen backend servisini kontrol edin.");
+    } finally {
+      setPdfLoadingId(null);
+    }
   }
 
   return (
@@ -5209,6 +5536,78 @@ function ReservationsPage({
               </label>
             </div>
 
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={reservationForm.ekTemizlikVar}
+                    onChange={(e) =>
+                      setReservationForm((prev) => ({
+                        ...prev,
+                        ekTemizlikVar: e.target.checked,
+                        ekTemizlikUcreti: e.target.checked ? prev.ekTemizlikUcreti : "",
+                      }))
+                    }
+                  />
+                  Ekstra temizlik ücreti var mı?
+                </label>
+                {reservationForm.ekTemizlikVar && (
+                  <label className="mt-2 flex flex-col gap-1 text-xs font-medium text-slate-600">
+                    Ekstra temizlik tutarı (₺)
+                    <input
+                      type="number"
+                      min={0}
+                      value={reservationForm.ekTemizlikUcreti}
+                      onChange={(e) =>
+                        setReservationForm((prev) => ({
+                          ...prev,
+                          ekTemizlikUcreti: e.target.value,
+                        }))
+                      }
+                      placeholder="0"
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-500 transition focus:ring-2"
+                    />
+                  </label>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={reservationForm.hasarDepozitoVar}
+                    onChange={(e) =>
+                      setReservationForm((prev) => ({
+                        ...prev,
+                        hasarDepozitoVar: e.target.checked,
+                        depozitoTutar: e.target.checked ? prev.depozitoTutar : "",
+                      }))
+                    }
+                  />
+                  Hasar depozitosu var mı?
+                </label>
+                {reservationForm.hasarDepozitoVar && (
+                  <label className="mt-2 flex flex-col gap-1 text-xs font-medium text-slate-600">
+                    Hasar depozitosu tutarı (₺)
+                    <input
+                      type="number"
+                      min={0}
+                      value={reservationForm.depozitoTutar}
+                      onChange={(e) =>
+                        setReservationForm((prev) => ({
+                          ...prev,
+                          depozitoTutar: e.target.value,
+                        }))
+                      }
+                      placeholder="0"
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-500 transition focus:ring-2"
+                    />
+                  </label>
+                )}
+              </div>
+            </div>
+
             {/* Canlı hesap gösterimi */}
             {rfToplam > 0 && (
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -5292,6 +5691,16 @@ function ReservationsPage({
             <tbody>
               {reservationsWithVilla.map((reservation) => {
                 const isCancelled = reservation.status === "İptal Edildi";
+                const cleaningAmount = Number(reservation.ekTemizlikUcreti || 0);
+                const cleaningVar =
+                  reservation.ekTemizlikVar !== undefined
+                    ? Boolean(reservation.ekTemizlikVar)
+                    : cleaningAmount > 0;
+                const depositAmount = Number(reservation.depozitoTutar || 0);
+                const depositVar =
+                  reservation.hasarDepozitoVar !== undefined
+                    ? Boolean(reservation.hasarDepozitoVar)
+                    : depositAmount > 0;
                 return (
                 <tr key={reservation.id}
                   className={`text-sm transition ${isCancelled ? "bg-slate-50 opacity-60" : "text-slate-700 hover:bg-slate-50/40"}`}>
@@ -5368,6 +5777,32 @@ function ReservationsPage({
                             {reservation.kapidaOdemeDurumu || "—"}
                           </span>
                         </div>
+                        <div className="flex flex-wrap gap-1.5 pt-0.5">
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              cleaningVar
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-slate-100 text-slate-500"
+                            }`}
+                          >
+                            🧹 Temizlik:{" "}
+                            {cleaningVar
+                              ? `${cleaningAmount.toLocaleString("tr-TR")} ₺`
+                              : "Yok"}
+                          </span>
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              depositVar
+                                ? "bg-violet-100 text-violet-700"
+                                : "bg-slate-100 text-slate-500"
+                            }`}
+                          >
+                            🛡️ Depozito:{" "}
+                            {depositVar
+                              ? `${depositAmount.toLocaleString("tr-TR")} ₺`
+                              : "Yok"}
+                          </span>
+                        </div>
                       </div>
                     ) : (
                       <span className="text-xs text-slate-400 italic">Ödeme bilgisi girilmedi</span>
@@ -5393,11 +5828,26 @@ function ReservationsPage({
                       >
                         PDF
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowActivityGuideModal(true)}
+                        className="rounded-md border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100"
+                      >
+                        İçerik Düzenle
+                      </button>
                     </div>
                   </td>
                   {/* Aksiyonlar */}
                   <td className="border-b border-slate-100 px-4 py-4">
                     <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => downloadReservationPdf(reservation.id)}
+                        disabled={pdfLoadingId === reservation.id}
+                        className="rounded-md border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100"
+                      >
+                        {pdfLoadingId === reservation.id ? "Üretiliyor..." : "PDF İndir"}
+                      </button>
                       <button type="button"
                         onClick={() => setSelectedReservationId(reservation.id)}
                         className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100">
@@ -5703,6 +6153,17 @@ function ReservationsPage({
           onClose={() => setCancelingReservation(null)}
         />
       )}
+
+      {showActivityGuideModal && (
+        <ActivityGuideSettingsModal
+          initialSettings={activityGuideSettings}
+          onSave={(nextSettings) => {
+            onUpdateActivityGuideSettings(nextSettings);
+            setShowActivityGuideModal(false);
+          }}
+          onClose={() => setShowActivityGuideModal(false)}
+        />
+      )}
     </>
   );
 }
@@ -5740,6 +6201,7 @@ function DueDateBadge({ dueDate }) {
 }
 
 function TasksPage({ tasks, onAddTask, onMoveTask }) {
+  const [activeView, setActiveView] = useState("kanban");
   const [title, setTitle] = useState("");
   const [assignedToId, setAssignedToId] = useState("");
   const [assignedToName, setAssignedToName] = useState("");
@@ -5810,8 +6272,36 @@ function TasksPage({ tasks, onAddTask, onMoveTask }) {
       <header className="rounded-xl border border-slate-200 bg-white px-8 py-6 shadow-sm">
         <p className="text-sm text-slate-500">Trello Benzeri Board</p>
         <h2 className="mt-1 text-3xl font-semibold text-slate-900">Görevler</h2>
+        <div className="mt-4 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
+          <button
+            type="button"
+            onClick={() => setActiveView("kanban")}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+              activeView === "kanban"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-600 hover:text-slate-800"
+            }`}
+          >
+            🗂 Kanban
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView("calendar")}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+              activeView === "calendar"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-600 hover:text-slate-800"
+            }`}
+          >
+            📅 Takvim
+          </button>
+        </div>
       </header>
 
+      {activeView === "calendar" ? (
+        <TaskCalendar tasks={tasks} onAddTask={onAddTask} onMoveTask={onMoveTask} />
+      ) : (
+        <>
       <section className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <form onSubmit={addTask} className="flex flex-wrap items-end gap-3">
           {/* Görev başlığı */}
@@ -5961,12 +6451,24 @@ function TasksPage({ tasks, onAddTask, onMoveTask }) {
           </article>
         ))}
       </section>
+        </>
+      )}
     </>
   );
 }
 
 export default function App() {
   const { displayName: currentUser, user } = useAuth();
+  const [activityGuideSettings, setActivityGuideSettings] = useState(() => {
+    try {
+      const raw = localStorage.getItem(ACTIVITY_GUIDE_SETTINGS_KEY);
+      if (!raw) return defaultActivityGuideSettings;
+      const parsed = JSON.parse(raw);
+      return { ...defaultActivityGuideSettings, ...parsed };
+    } catch {
+      return defaultActivityGuideSettings;
+    }
+  });
   const [villas, setVillas] = useState(initialVillas);
   const [reservations, setReservations] = useState(initialReservations);
   const [tasks, setTasks] = useState(initialTasks);
@@ -5974,6 +6476,280 @@ export default function App() {
   const [activities, setActivities] = useState(initialActivities);
   const [transactions, setTransactions] = useState(initialTransactions);
   const [auditEntries, setAuditEntries] = useState([]); // dev-mode fallback
+
+  useEffect(() => {
+    let active = true;
+    async function loadTasksFromDb() {
+      if (!supabase || !user?.id) return;
+      const { data, error } = await supabase
+        .from("tasks")
+        .select("id,title,status,assigned_to,due_date,text,profiles!assigned_to(full_name)")
+        .order("created_at", { ascending: false });
+      if (error) {
+        console.warn("Tasks DB'den yüklenemedi:", error.message);
+        return;
+      }
+      if (!active) return;
+      setTasks(
+        (data || []).map((row) => ({
+          id: row.id,
+          title: row.title,
+          status: row.status,
+          assignedToId: row.assigned_to || null,
+          assignedToName: row?.profiles?.full_name || null,
+          dueDate: row.due_date || null,
+          text: row.text || "",
+        })),
+      );
+    }
+    loadTasksFromDb();
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadCoreData() {
+      if (!supabase || !user?.id) return;
+      try {
+        const [{ data: villaRows }, { data: reservationRows }, { data: activityRows }, { data: txRows }] =
+          await Promise.all([
+            supabase.from("villas").select("*").order("created_at", { ascending: false }),
+            supabase.from("reservations").select("*").order("created_at", { ascending: false }),
+            supabase.from("activities").select("*").order("created_at", { ascending: false }),
+            supabase.from("transactions").select("*").order("created_at", { ascending: false }),
+          ]);
+        if (!active) return;
+
+        if (villaRows && villaRows.length > 0) {
+          setVillas(
+            villaRows.map((v) => ({
+              id: v.id,
+              name: v.name || "",
+              owner: v.owner_name || "",
+              location: v.city || "",
+              phone: v.owner_phone || "",
+              status: v.status || "Beklemede",
+              seasonalRentTry: v.seasonal_rent_try ?? null,
+              logs: [],
+              operational: defaultOperational(),
+            })),
+          );
+        }
+
+        if (reservationRows && reservationRows.length > 0) {
+          setReservations(
+            reservationRows.map((r) => ({
+              id: r.id,
+              villaId: r.villa_id,
+              guestName: r.guest_name || "",
+              guestEmail: r.guest_email || "",
+              guestPhone: r.guest_phone || "",
+              nationality: r.nationality || "",
+              idNumber: r.id_number || "",
+              adults: r.adults ?? 0,
+              children: r.children ?? 0,
+              channel: r.channel || "",
+              specialRequests: r.special_requests || "",
+              notes: r.notes || "",
+              startDate: r.start_date || "",
+              endDate: r.end_date || "",
+              toplamTutar: Number(r.toplam_tutar || 0),
+              bizimKomisyon: Number(r.bizim_komisyon || 0),
+              alinanOnOdeme: Number(r.alinan_on_odeme || 0),
+              kapidaOdenecek: Number(r.kapida_odenecek || 0),
+              ajansBorc: Number(r.ajans_borc || 0),
+              onOdemeDurumu: r.on_odeme_durumu || "Beklemede",
+              kapidaOdemeDurumu: r.kapida_odeme_durumu || "Beklemede",
+              status: r.status || "Aktif",
+              createdBy: r.created_by || "",
+              createdAt: r.created_at || nowIso(),
+              cancelledAt: r.cancelled_at || null,
+              ekTemizlikUcreti: Number(r.ek_temizlik_ucreti || 0),
+              hasarDepozitoVar: Number(r.depozito_tutar || 0) > 0,
+              depozitoTutar: Number(r.depozito_tutar || 0),
+              reservationNo: r.reservation_no || null,
+            })),
+          );
+        }
+
+        if (activityRows && activityRows.length > 0) {
+          setActivities(
+            activityRows.map((a) => ({
+              id: a.id,
+              title: a.title || "",
+              category: a.category || "Diğer",
+              city: a.city || "",
+              description: a.description || "",
+              startDate: a.start_date || "",
+              endDate: a.end_date || "",
+              priceTry: Number(a.price_try || 0),
+              whatsappPhone: a.whatsapp_phone || "",
+              photos: a.photos || [],
+              isActive: a.is_active !== false,
+              variations: a.variations || [],
+              createdBy: a.created_by || "",
+              createdAt: a.created_at || nowIso(),
+            })),
+          );
+        }
+
+        if (txRows && txRows.length > 0) {
+          setTransactions(
+            txRows.map((t) => ({
+              id: t.id,
+              villaId: t.villa_id,
+              rezervasyonId: t.rezervasyon_id,
+              islemTipi: t.islem_tipi,
+              miktar: Number(t.miktar || 0),
+              bizimKomisyon: Number((t.miktar || 0) * 0.2),
+              alinanOnOdeme: Number((t.miktar || 0) * 0.2),
+              kapidaOdenecek: Number((t.miktar || 0) * 0.8),
+              ajansBorc: 0,
+              islemTarihi: t.islem_tarihi,
+              aciklama: t.aciklama || "",
+              durum: t.durum || "Beklemede",
+              kapidaOdemeDurumu: t.kapida_odeme_dur || null,
+              createdBy: t.created_by || "",
+              createdAt: t.created_at || nowIso(),
+            })),
+          );
+        }
+      } catch (error) {
+        console.warn("Core DB yükleme atlandı:", error?.message || error);
+      }
+    }
+    loadCoreData();
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ACTIVITY_GUIDE_SETTINGS_KEY, JSON.stringify(activityGuideSettings));
+    } catch {
+      // ignore storage write errors
+    }
+  }, [activityGuideSettings]);
+
+  function applyGuideTemplate(template, replacements) {
+    return String(template || "").replace(/\{(\w+)\}/g, (_m, key) => {
+      if (Object.prototype.hasOwnProperty.call(replacements, key)) {
+        return replacements[key];
+      }
+      return "";
+    });
+  }
+
+  function villaToDb(villa) {
+    const row = {
+      user_id: user?.id || null,
+      name: villa.name || "",
+      city: villa.location || null,
+      owner_name: villa.owner || null,
+      owner_phone: villa.phone || null,
+      status: villa.status || "Beklemede",
+      seasonal_rent_try: villa.seasonalRentTry ?? null,
+      description: villa.description || null,
+    };
+    if (isUuidLike(villa.id)) row.id = villa.id;
+    return row;
+  }
+
+  function reservationToDb(r) {
+    const row = {
+      user_id: user?.id || null,
+      villa_id: isUuidLike(r.villaId) ? r.villaId : null,
+      guest_name: r.guestName || "",
+      guest_email: r.guestEmail || null,
+      guest_phone: r.guestPhone || null,
+      nationality: r.nationality || null,
+      id_number: r.idNumber || null,
+      adults: r.adults ?? 0,
+      children: r.children ?? 0,
+      channel: r.channel || null,
+      special_requests: r.specialRequests || null,
+      notes: r.notes || null,
+      start_date: r.startDate || null,
+      end_date: r.endDate || null,
+      toplam_tutar: r.toplamTutar ?? 0,
+      bizim_komisyon: r.bizimKomisyon ?? 0,
+      alinan_on_odeme: r.alinanOnOdeme ?? 0,
+      kapida_odenecek: r.kapidaOdenecek ?? 0,
+      ajans_borc: r.ajansBorc ?? 0,
+      on_odeme_durumu: r.onOdemeDurumu || null,
+      kapida_odeme_durumu: r.kapidaOdemeDurumu || null,
+      status: r.status || "Aktif",
+      created_by: r.createdBy || currentUser || null,
+      cancelled_at: r.cancelledAt || null,
+      ek_temizlik_ucreti: r.ekTemizlikUcreti ?? 0,
+      depozito_tutar: r.depozitoTutar ?? 0,
+    };
+    if (isUuidLike(r.id)) row.id = r.id;
+    return row;
+  }
+
+  function activityToDb(a) {
+    const row = {
+      user_id: user?.id || null,
+      title: a.title || "",
+      description: a.description || null,
+      category: a.category || null,
+      city: a.city || null,
+      start_date: a.startDate || null,
+      end_date: a.endDate || null,
+      price_try: a.priceTry ?? 0,
+      whatsapp_phone: a.whatsappPhone || null,
+      is_active: a.isActive !== false,
+      photos: a.photos || [],
+      variations: a.variations || [],
+      created_by: a.createdBy || currentUser || null,
+    };
+    if (isUuidLike(a.id)) row.id = a.id;
+    return row;
+  }
+
+  function transactionToDb(t) {
+    const row = {
+      user_id: user?.id || null,
+      villa_id: isUuidLike(t.villaId) ? t.villaId : null,
+      rezervasyon_id: t.rezervasyonId != null ? String(t.rezervasyonId) : null,
+      islem_tipi: t.islemTipi || "Gelir",
+      miktar: t.miktar ?? 0,
+      komisyon_orani: 20,
+      islem_tarihi: t.islemTarihi || null,
+      aciklama: t.aciklama || null,
+      durum: t.durum || "Beklemede",
+      kapida_odeme_dur: t.kapidaOdemeDurumu || null,
+      created_by: t.createdBy || currentUser || null,
+    };
+    if (isUuidLike(t.id)) row.id = t.id;
+    return row;
+  }
+
+  async function dbInsert(table, row) {
+    if (!supabase || !user?.id) return null;
+    const { data, error } = await supabase.from(table).insert(row).select("*").single();
+    if (error) {
+      console.warn(`${table} insert başarısız:`, error.message);
+      return null;
+    }
+    return data;
+  }
+
+  async function dbUpdate(table, id, patch) {
+    if (!supabase || !isUuidLike(id)) return;
+    const { error } = await supabase.from(table).update(patch).eq("id", id);
+    if (error) console.warn(`${table} update başarısız:`, error.message);
+  }
+
+  async function dbDelete(table, id) {
+    if (!supabase || !isUuidLike(id)) return;
+    const { error } = await supabase.from(table).delete().eq("id", id);
+    if (error) console.warn(`${table} delete başarısız:`, error.message);
+  }
 
   // ── Audit logger (fire-and-forget) ────────────────────────────────────────
   function auditLog({ action, tableName, recordId, oldData, newData, description }) {
@@ -6054,6 +6830,7 @@ export default function App() {
       newData: { name: villa.name, owner: villa.owner, location: villa.location, status: villa.status },
       description: `Villa oluşturuldu: ${villa.name}`,
     });
+    void dbInsert("villas", villaToDb(villa));
   }
 
   function importVillas(importedVillas, author) {
@@ -6067,6 +6844,9 @@ export default function App() {
     }));
     setVillas((prev) => [...prepared, ...prev]);
     appendActivity(author, `${prepared.length} villa içe aktarıldı.`);
+    prepared.forEach((v) => {
+      void dbInsert("villas", villaToDb(v));
+    });
   }
 
   function updateVilla(villaId, updates, author) {
@@ -6113,6 +6893,9 @@ export default function App() {
         description: `Villa fiyatı güncellendi: ${oldVilla?.name} — ${oldVilla?.seasonalRentTry} ₺ → ${updates.seasonalRentTry} ₺`,
       });
     }
+    if (isUuidLike(villaId)) {
+      void dbUpdate("villas", villaId, villaToDb({ ...oldVilla, ...updates, id: villaId }));
+    }
   }
 
   function updateOperationalNotes(villaId, operationalUpdates, newCriticalNote, author) {
@@ -6141,6 +6924,15 @@ export default function App() {
       }),
     );
     appendActivity(author, `Kritik operasyon notları güncellendi (ID: ${villaId}).`);
+    if (isUuidLike(villaId)) {
+      void dbUpdate("villas", villaId, {
+        description: JSON.stringify({
+          keyInfo: operationalUpdates.keyInfo || "",
+          cleaningInfo: operationalUpdates.cleaningInfo || "",
+          ownerSpecialRequests: operationalUpdates.ownerSpecialRequests || "",
+        }),
+      });
+    }
   }
 
   function deleteVilla(villaId, author) {
@@ -6158,6 +6950,7 @@ export default function App() {
       oldData: { name: target?.name, owner: target?.owner, location: target?.location, status: target?.status },
       description: `Villa silindi: ${target?.name || villaId}`,
     });
+    void dbDelete("villas", villaId);
   }
 
   function updateVillaStatus(villaId, nextStatus, author) {
@@ -6183,6 +6976,9 @@ export default function App() {
         newData: { status: nextStatus },
         description: `${oldVilla?.name || villaId} durumu değiştirildi: ${oldVilla?.status} → ${nextStatus}`,
       });
+    }
+    if (isUuidLike(villaId)) {
+      void dbUpdate("villas", villaId, { status: nextStatus });
     }
   }
 
@@ -6264,15 +7060,25 @@ export default function App() {
       },
       description: `Rezervasyon oluşturuldu: ${reservation.guestName} (${reservation.startDate}–${reservation.endDate})`,
     });
+    void dbInsert("reservations", reservationToDb(reservation));
   }
 
   function sendActivityGuide(reservation, type, author) {
-    const targetUrl = type === "pdf" ? ACTIVITY_GUIDE_PDF : ACTIVITY_GUIDE_LINK;
-    const subject = encodeURIComponent("Bölgemizdeki Aktiviteler");
+    const targetUrl = type === "pdf" ? activityGuideSettings.pdfUrl : activityGuideSettings.linkUrl;
+    const guideType = type === "pdf" ? "PDF" : "link";
+    const subject = encodeURIComponent(
+      applyGuideTemplate(activityGuideSettings.emailSubject, {
+        guestName: reservation.guestName || "Misafir",
+        guideType,
+        guideUrl: targetUrl,
+      }),
+    );
     const body = encodeURIComponent(
-      `Merhaba ${reservation.guestName},\n\nBölgemizdeki aktiviteler için ${
-        type === "pdf" ? "PDF" : "link"
-      } paylaşımı:\n${targetUrl}\n\nİyi tatiller dileriz.`,
+      applyGuideTemplate(activityGuideSettings.emailBody, {
+        guestName: reservation.guestName || "Misafir",
+        guideType,
+        guideUrl: targetUrl,
+      }),
     );
 
     if (reservation.guestEmail) {
@@ -6382,6 +7188,7 @@ export default function App() {
     };
     setActivities((prev) => [newActivity, ...prev]);
     appendActivity(currentUser, `Yeni aktivite eklendi: ${data.title}.`);
+    void dbInsert("activities", activityToDb(newActivity));
   }
 
   function updateActivity(activityId, data) {
@@ -6389,6 +7196,9 @@ export default function App() {
       prev.map((a) => (a.id === activityId ? { ...a, ...data } : a)),
     );
     appendActivity(currentUser, `Aktivite güncellendi: ${data.title}.`);
+    if (isUuidLike(activityId)) {
+      void dbUpdate("activities", activityId, activityToDb({ ...data, id: activityId }));
+    }
   }
 
   function deleteActivity(activityId) {
@@ -6398,6 +7208,7 @@ export default function App() {
       currentUser,
       `Aktivite silindi: ${target?.title || activityId}.`,
     );
+    void dbDelete("activities", activityId);
   }
 
   function toggleActivity(activityId) {
@@ -6412,6 +7223,10 @@ export default function App() {
         return { ...a, isActive: next };
       }),
     );
+    const target = activities.find((a) => a.id === activityId);
+    if (target && isUuidLike(activityId)) {
+      void dbUpdate("activities", activityId, { is_active: !target.isActive });
+    }
   }
 
   function addTransaction(data) {
@@ -6438,6 +7253,7 @@ export default function App() {
       newData: { islemTipi: tx.islemTipi, miktar: tx.miktar, durum: tx.durum, aciklama: tx.aciklama },
       description: `Finansal işlem oluşturuldu: ${tx.islemTipi} ${tx.miktar?.toLocaleString("tr-TR")} ₺ — ${villa?.name || ""}`,
     });
+    void dbInsert("transactions", transactionToDb(tx));
   }
 
   function updateTransaction(txId, data) {
@@ -6454,6 +7270,9 @@ export default function App() {
       newData: { miktar: data.miktar, durum: data.durum, aciklama: data.aciklama },
       description: `Finansal işlem güncellendi: ${oldTx?.aciklama || txId}`,
     });
+    if (isUuidLike(txId)) {
+      void dbUpdate("transactions", txId, transactionToDb({ ...oldTx, ...data, id: txId }));
+    }
   }
 
   function deleteTransaction(txId) {
@@ -6470,6 +7289,7 @@ export default function App() {
       oldData: { islemTipi: target?.islemTipi, miktar: target?.miktar, aciklama: target?.aciklama, durum: target?.durum },
       description: `Finansal işlem silindi: ${target?.aciklama || txId}`,
     });
+    void dbDelete("transactions", txId);
   }
 
   function markTransactionPaid(txId) {
@@ -6489,6 +7309,9 @@ export default function App() {
       newData: { durum: "Ödendi" },
       description: `Ön ödeme alındı: ${target?.aciklama || txId}`,
     });
+    if (isUuidLike(txId)) {
+      void dbUpdate("transactions", txId, { durum: "Ödendi" });
+    }
   }
 
   function markKapidaOdendi(txId) {
@@ -6508,6 +7331,9 @@ export default function App() {
       newData: { kapidaOdemeDurumu: "Ödendi" },
       description: `Kapıda ödeme tahsil edildi: ${target?.aciklama || txId}`,
     });
+    if (isUuidLike(txId)) {
+      void dbUpdate("transactions", txId, { kapida_odeme_dur: "Ödendi" });
+    }
   }
 
   function updateReservation(id, updatedData, author) {
@@ -6567,6 +7393,9 @@ export default function App() {
       },
       description: `Rezervasyon güncellendi: ${enriched.guestName} (${enriched.startDate}–${enriched.endDate})`,
     });
+    if (isUuidLike(id)) {
+      void dbUpdate("reservations", id, reservationToDb({ ...enriched, id }));
+    }
   }
 
   function cancelReservation(id, iadeEdildi, author) {
@@ -6601,6 +7430,12 @@ export default function App() {
       newData: { status: "İptal Edildi", iadeEdildi },
       description: `Rezervasyon iptal edildi: ${r?.guestName} — İade: ${iadeEdildi ? "Evet" : "Hayır"}`,
     });
+    if (isUuidLike(id)) {
+      void dbUpdate("reservations", id, {
+        status: "İptal Edildi",
+        cancelled_at: nowIso(),
+      });
+    }
   }
 
   function markAjansOdendi(txId) {
@@ -6620,13 +7455,82 @@ export default function App() {
       newData: { ajansOdemeDurumu: "Ödendi" },
       description: `Ajans borcu ödendi: ${target?.aciklama || txId}`,
     });
+    if (isUuidLike(txId)) {
+      void dbUpdate("transactions", txId, { kapida_odeme_dur: "Ödendi" });
+    }
   }
 
-  function addTask(task) {
-    setTasks((prev) => [task, ...prev]);
+  async function addTask(task) {
+    const normalizedStatus =
+      task.status === "done"
+        ? "Tamamlandı"
+        : task.status === "in_progress"
+          ? "Yapılıyor"
+          : task.status === "pending"
+            ? "Yapılacak"
+            : task.status || "Yapılacak";
+
+    const localTask = { ...task, status: normalizedStatus };
+
+    // DB'den gelen UUID ise tekrar insert etme.
+    if (!supabase || !user?.id || isUuidLike(task.id)) {
+      setTasks((prev) => [localTask, ...prev]);
+      return;
+    }
+
+    let inserted = null;
+    let error = null;
+    const insertPayload = {
+      user_id: user.id,
+      title: localTask.title,
+      text: localTask.text || null,
+      status: localTask.status,
+      assigned_to: localTask.assignedToId || null,
+      due_date: localTask.dueDate || null,
+      created_at: nowIso(),
+    };
+
+    ({ data: inserted, error } = await supabase
+      .from("tasks")
+      .insert(insertPayload)
+      .select("id,title,status,assigned_to,due_date,text,profiles!assigned_to(full_name)")
+      .single());
+
+    if (error) {
+      const msg = String(error.message || "").toLowerCase();
+      if (msg.includes("could not find") && msg.includes("'text'")) {
+        const fallback = { ...insertPayload };
+        delete fallback.text;
+        ({ data: inserted, error } = await supabase
+          .from("tasks")
+          .insert(fallback)
+          .select("id,title,status,assigned_to,due_date,profiles!assigned_to(full_name)")
+          .single());
+      }
+    }
+
+    if (error) {
+      console.warn("Task DB insert başarısız, local eklendi:", error.message);
+      setTasks((prev) => [localTask, ...prev]);
+      return;
+    }
+
+    setTasks((prev) => [
+      {
+        id: inserted.id,
+        title: inserted.title,
+        status: inserted.status,
+        assignedToId: inserted.assigned_to || null,
+        assignedToName:
+          inserted?.profiles?.full_name || localTask.assignedToName || null,
+        dueDate: inserted.due_date || null,
+        text: inserted.text || localTask.text || "",
+      },
+      ...prev,
+    ]);
   }
 
-  function moveTask(taskId, targetIndex) {
+  async function moveTask(taskId, targetIndex) {
     if (targetIndex < 0 || targetIndex >= taskColumns.length) return;
     const nextStatus = taskColumns[targetIndex];
     setTasks((prev) =>
@@ -6634,6 +7538,13 @@ export default function App() {
         task.id === taskId ? { ...task, status: nextStatus } : task,
       ),
     );
+    if (supabase && isUuidLike(taskId)) {
+      const { error } = await supabase
+        .from("tasks")
+        .update({ status: nextStatus })
+        .eq("id", taskId);
+      if (error) console.warn("Task status DB update başarısız:", error.message);
+    }
   }
 
   return (
@@ -6682,6 +7593,8 @@ export default function App() {
                   reservations={reservations}
                   activities={activities}
                   currentUser={currentUser}
+                  activityGuideSettings={activityGuideSettings}
+                  onUpdateActivityGuideSettings={setActivityGuideSettings}
                   onAddReservation={addReservation}
                   onUpdateReservation={updateReservation}
                   onCancelReservation={cancelReservation}
@@ -6756,6 +7669,18 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
+
+            <Route
+              path="/backup"
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <BackupManager />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Profile settings — all authenticated users */}
+            <Route path="/profile" element={<ProfileSettings />} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
