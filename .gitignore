@@ -3,3 +3,11 @@ dist
 .DS_Store
 .env
 .env.local
+
+# Generated backend assets (re-created from source on first run)
+backend/assets/aydede-logo.png
+backend/assets/fonts/
+
+# Python cache
+backend/__pycache__/
+backend/*.pyc
